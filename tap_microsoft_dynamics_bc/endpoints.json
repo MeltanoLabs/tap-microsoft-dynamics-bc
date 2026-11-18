@@ -1767,7 +1767,7 @@
       "surname": "Surname",
       "terminationDate": "Termination Date"
      },
-     "full_table_default": false,
+     "full_table_default": true,
      "incremental": true,
      "kind": "page",
      "parent": null

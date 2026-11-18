@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import logging
 import sys
 from typing import TYPE_CHECKING, Any
 from urllib.parse import quote
 
-from tap_microsoft_dynamics_bc.client import BusinessCentralStream
+from singer_sdk.exceptions import FatalAPIError
+
+from tap_microsoft_dynamics_bc.client import INCREMENTAL, BusinessCentralStream, odata_datetime
 
 if sys.version_info >= (3, 12):
     from typing import override
@@ -49,12 +52,26 @@ class CompanyEntityStream(BusinessCentralStream):
     Business Central only returns for a given document. Their lines are fetched
     with ``$expand`` on the header request and handed to the child stream, so
     lines cost no extra requests.
+
+    An incremental header with an ``open_documents_filter`` (draft invoices and
+    credit memos) also re-reads the documents matching that filter every run.
+    Business Central only updates a header's ``lastModifiedDateTime`` for line
+    changes that affect its totals, so an edit to, say, the description of an
+    item line on a draft would otherwise be missed.
     """
 
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
+    def __init__(
+        self,
+        *args: Any,
+        open_documents_filter: str | None = None,
+        **kwargs: Any,
+    ) -> None:
         """Create the stream and its (empty) expansion buffer."""
         super().__init__(*args, **kwargs)
         self.state_partitioning_keys = ["company_id"]
+        self.open_documents_filter = open_documents_filter
+        # Set while re-reading open documents: their modification time is before this.
+        self._open_documents_before: str | None = None
         # navigation property -> parent record id -> (rows, next link)
         self._expanded: dict[str, dict[str, tuple[list[dict], str | None]]] = {}
 
@@ -79,6 +96,55 @@ class CompanyEntityStream(BusinessCentralStream):
         if expansions := self.expansions:
             params["$expand"] = ",".join(expansions)
         return params
+
+    @override
+    def replication_filter(self, context: Context | None) -> str | None:
+        """Select unchanged open documents during the re-read pass."""
+        if self._open_documents_before is not None and self.replication_key:
+            return (
+                f"{self.open_documents_filter} and "
+                f"{self.replication_key} lt {self._open_documents_before}"
+            )
+        return super().replication_filter(context)
+
+    def _open_documents_cutoff(self, context: Context | None) -> str | None:
+        """Return the start of this run's incremental window if open documents are re-read.
+
+        Open documents are only re-read to refresh their lines, so not when no
+        line stream is selected. Without a start (first run, no ``start_date``)
+        the incremental pass already reads every document.
+        """
+        if (
+            not self.open_documents_filter
+            or not self.replication_key
+            or self.replication_method != INCREMENTAL
+            or not self.expansions
+        ):
+            return None
+        start = self.get_starting_timestamp(context)
+        return None if start is None else odata_datetime(start)
+
+    @override
+    def get_records(self, context: Context | None) -> Iterable[dict[str, Any]]:
+        """Yield changed documents, then open documents that did not change."""
+        # Read the window start before the first pass moves the bookmark.
+        cutoff = self._open_documents_cutoff(context)
+        yield from super().get_records(context)
+        if cutoff is None:
+            return
+        self._open_documents_before = cutoff
+        try:
+            yield from super().get_records(context)
+        except FatalAPIError as exc:
+            self.log(
+                "Could not re-read open documents of '%s' (%s). Their lines are "
+                "refreshed when the document next changes.",
+                self.name,
+                exc,
+                level=logging.WARNING,
+            )
+        finally:
+            self._open_documents_before = None
 
     @override
     def parse_response(self, response: requests.Response) -> Iterable[dict]:
@@ -127,6 +193,8 @@ class ExpandedLineStream(BusinessCentralStream):
             else None
         )
         if buffered is not None and buffered[1] is None:
+            # The header request succeeded, so these are all of the document's lines.
+            self.send_activate_version()
             # post_process() is applied by the SDK to every yielded record.
             yield from buffered[0]
             return

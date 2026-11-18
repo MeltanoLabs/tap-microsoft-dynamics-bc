@@ -41,6 +41,16 @@ METADATA_TIMEOUT_SECONDS = 300
 # Columns that identify a ledger/query row when the endpoint declares no key.
 QUERY_KEY_CANDIDATES = ("id", "systemId", "entryNumber", "entryNo")
 REPLICATION_KEY_CANDIDATES = ("lastModifiedDateTime", "systemModifiedAt", "SystemModifiedAt")
+# Incremental documents whose lines can change without the header's
+# lastModifiedDateTime changing: Business Central only updates the header for
+# line changes that affect its totals. Lines can only be edited on drafts, so
+# drafts are re-read every run. Posted documents cannot change.
+OPEN_DOCUMENT_FILTERS = {
+    "salesInvoices": "status eq 'Draft'",
+    "salesCreditMemos": "status eq 'Draft'",
+    "purchaseInvoices": "status eq 'Draft'",
+    "purchaseCreditMemos": "status eq 'Draft'",
+}
 
 
 _S = TypeVar("_S", bound=BusinessCentralStream)
@@ -202,6 +212,19 @@ class TapMicrosoftDynamicsBC(Tap):
             description="Maximum records per API response (`Prefer: odata.maxpagesize`).",
         ),
         th.Property(
+            "base_url",
+            th.StringType,
+            title="Server URL (on-premises)",
+            description=(
+                "For Business Central on-premises: the root URL of the server instance, "
+                "for example `https://bc.example.com:7048/BC`. Requests go to "
+                "`{base_url}/api/v2.0/...` and `environment_name` is not used. The "
+                "server must use Microsoft Entra authentication and accept tokens for "
+                "`https://api.businesscentral.dynamics.com` (in `ValidAudiences`). "
+                "Leave empty for Business Central online."
+            ),
+        ),
+        th.Property(
             "api_url",
             th.StringType(nullable=False),
             default=DEFAULT_API_URL,
@@ -219,7 +242,9 @@ class TapMicrosoftDynamicsBC(Tap):
 
     @cached_property
     def environment_url(self) -> str:
-        """Return the environment root URL."""
+        """Return the environment root URL (the server instance URL on-premises)."""
+        if base_url := self.config.get("base_url"):
+            return str(base_url).rstrip("/")
         api_url = (self.config.get("api_url") or DEFAULT_API_URL).rstrip("/")
         environment = self.config.get("environment_name") or "production"
         return f"{api_url}/v2.0/{self.config['tenant_id']}/{environment}"
@@ -318,6 +343,12 @@ class TapMicrosoftDynamicsBC(Tap):
             else:
                 replication_key = next((k for k in REPLICATION_KEY_CANDIDATES if k in props), None)
 
+            open_documents_filter = (
+                OPEN_DOCUMENT_FILTERS.get(entity_set)
+                if route_id == STANDARD_ROUTE and replication_key and "status" in props
+                else None
+            )
+
             name = f"{prefix}{snake_case(entity_set)}"
             stream = bind_parent(CompanyEntityStream, companies, name)(
                 self,
@@ -327,6 +358,7 @@ class TapMicrosoftDynamicsBC(Tap):
                 primary_keys=["company_id", *keys] if keys else [],
                 replication_key=replication_key,
                 description=(info or {}).get("description"),
+                open_documents_filter=open_documents_filter,
             )
             stream.parent_stream = companies
             stream.selected_by_default = selected_by_default and (

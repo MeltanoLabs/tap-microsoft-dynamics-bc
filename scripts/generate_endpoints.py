@@ -24,6 +24,8 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
+from tap_microsoft_dynamics_bc.tap import OPEN_DOCUMENT_FILTERS
+
 REPO = "microsoft/BCApps"
 APP_DIRS = ("src/Apps/W1/APIV2/", "src/Apps/W1/APIReportsFinance/", "src/Apps/W1/PowerBIReports/")
 ROOT = Path(__file__).parent.parent
@@ -73,7 +75,11 @@ EXCLUDED = {
 
 # Working documents that are deleted when posted or cancelled. They default to
 # full-table replication so ACTIVATE_VERSION lets targets drop deleted rows.
+# `employees` is here for its time registration entries: Business Central only
+# lists them per employee, and they change without the employee changing, so
+# every employee is re-read (employees are few).
 FULL_TABLE_DEFAULT = {
+    "employees",
     "salesOrders",
     "salesQuotes",
     "blanketSalesOrders",
@@ -262,10 +268,12 @@ def streams_doc(registry: dict[str, Any]) -> str:
         "`company_id` plus the entity key. Schemas are read from the environment's "
         "`$metadata` at discovery, so fields added by extensions appear automatically.",
         "",
-        "Replication: **incremental** streams filter on `lastModifiedDateTime`; "
-        "**full table** streams are re-read each run and emit `ACTIVATE_VERSION` so "
-        "deleted rows can be removed downstream; **lines of X** streams are read "
-        "with their header document (via `$expand`).",
+        "Replication: **incremental** streams filter on `lastModifiedDateTime` "
+        "(**drafts re-read**: draft documents are also read again every run, so "
+        "edits to their lines are not missed); **full table** streams are re-read "
+        "each run and emit `ACTIVATE_VERSION` so deleted rows can be removed "
+        "downstream; **lines of X** streams are read with their header document "
+        "(via `$expand`) and emit `ACTIVATE_VERSION` only when X is full table.",
         "",
         "Analytics streams are not selected by default. Endpoints a Business Central "
         "release adds after this list was generated are discovered too, unselected.",
@@ -290,6 +298,8 @@ def streams_doc(registry: dict[str, Any]) -> str:
                 replication = f"lines of `{parent}`"
             elif info["incremental"] and not info["full_table_default"]:
                 replication = "incremental"
+                if route_id == "v2.0" and entity_set in OPEN_DOCUMENT_FILTERS:
+                    replication = "incremental, drafts re-read"
             else:
                 replication = "full table"
             description = (info["description"] or "").replace("|", "\\|")
