@@ -1,0 +1,116 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Trimmed, hand-written fixture in the shape of a Business Central API v2.0 $metadata document. -->
+<edmx:Edmx Version="4.0" xmlns:edmx="http://docs.oasis-open.org/odata/ns/edmx">
+  <edmx:DataServices>
+    <Schema Namespace="Microsoft.NAV" xmlns="http://docs.oasis-open.org/odata/ns/edm">
+      <EnumType Name="contactType">
+        <Member Name="Company" Value="0" />
+        <Member Name="Person" Value="1" />
+      </EnumType>
+      <ComplexType Name="documentLineObjectDetailsType">
+        <Property Name="number" Type="Edm.String" />
+        <Property Name="displayName" Type="Edm.String" />
+      </ComplexType>
+      <EntityType Name="company">
+        <Key><PropertyRef Name="id" /></Key>
+        <Property Name="id" Type="Edm.Guid" Nullable="false" />
+        <Property Name="systemVersion" Type="Edm.String" />
+        <Property Name="timestamp" Type="Edm.Int64" />
+        <Property Name="name" Type="Edm.String" MaxLength="30" />
+        <Property Name="displayName" Type="Edm.String" MaxLength="250" />
+        <Property Name="businessProfileId" Type="Edm.String" MaxLength="250" />
+        <Property Name="systemCreatedAt" Type="Edm.DateTimeOffset" />
+        <NavigationProperty Name="customers" Type="Collection(Microsoft.NAV.customer)" ContainsTarget="true" />
+        <NavigationProperty Name="salesInvoices" Type="Collection(Microsoft.NAV.salesInvoice)" ContainsTarget="true" />
+        <NavigationProperty Name="salesInvoiceLines" Type="Collection(Microsoft.NAV.salesInvoiceLine)" ContainsTarget="true" />
+        <NavigationProperty Name="salesOrders" Type="Collection(Microsoft.NAV.salesOrder)" ContainsTarget="true" />
+        <NavigationProperty Name="salesOrderLines" Type="Collection(Microsoft.NAV.salesOrderLine)" ContainsTarget="true" />
+        <NavigationProperty Name="trialBalances" Type="Collection(Microsoft.NAV.trialBalance)" ContainsTarget="true" />
+        <NavigationProperty Name="dimensionSetLines" Type="Collection(Microsoft.NAV.dimensionSetLine)" ContainsTarget="true" />
+        <NavigationProperty Name="pdfDocument" Type="Collection(Microsoft.NAV.pdfDocument)" ContainsTarget="true" />
+        <NavigationProperty Name="companyInformation" Type="Collection(Microsoft.NAV.companyInformation)" ContainsTarget="true" />
+      </EntityType>
+      <EntityType Name="customer">
+        <Key><PropertyRef Name="id" /></Key>
+        <Property Name="id" Type="Edm.Guid" Nullable="false" />
+        <Property Name="number" Type="Edm.String" MaxLength="20" />
+        <Property Name="displayName" Type="Edm.String" MaxLength="100" />
+        <Property Name="type" Type="Microsoft.NAV.contactType" />
+        <Property Name="taxLiable" Type="Edm.Boolean" />
+        <Property Name="balanceDue" Type="Edm.Decimal" Scale="Variable" />
+        <Property Name="creditLimit" Type="Edm.Decimal" Scale="Variable" />
+        <Property Name="lastModifiedDateTime" Type="Edm.DateTimeOffset" />
+        <Property Name="xbankRiskRating" Type="Edm.String" />
+        <NavigationProperty Name="picture" Type="Collection(Microsoft.NAV.picture)" ContainsTarget="true" />
+      </EntityType>
+      <EntityType Name="salesInvoice">
+        <Key><PropertyRef Name="id" /></Key>
+        <Property Name="id" Type="Edm.Guid" Nullable="false" />
+        <Property Name="number" Type="Edm.String" MaxLength="20" />
+        <Property Name="invoiceDate" Type="Edm.Date" />
+        <Property Name="customerId" Type="Edm.Guid" />
+        <Property Name="totalAmountIncludingTax" Type="Edm.Decimal" Scale="Variable" />
+        <Property Name="status" Type="Edm.String" />
+        <Property Name="lastModifiedDateTime" Type="Edm.DateTimeOffset" />
+        <NavigationProperty Name="salesInvoiceLines" Type="Collection(Microsoft.NAV.salesInvoiceLine)" ContainsTarget="true" />
+        <NavigationProperty Name="pdfDocument" Type="Collection(Microsoft.NAV.pdfDocument)" ContainsTarget="true" />
+      </EntityType>
+      <EntityType Name="salesInvoiceLine">
+        <Key><PropertyRef Name="id" /></Key>
+        <Property Name="id" Type="Edm.Guid" Nullable="false" />
+        <Property Name="documentId" Type="Edm.Guid" />
+        <Property Name="sequence" Type="Edm.Int32" />
+        <Property Name="description" Type="Edm.String" />
+        <Property Name="quantity" Type="Edm.Decimal" Scale="Variable" />
+        <Property Name="amountIncludingTax" Type="Edm.Decimal" Scale="Variable" />
+        <Property Name="itemDetails" Type="Microsoft.NAV.documentLineObjectDetailsType" />
+      </EntityType>
+      <EntityType Name="salesOrder">
+        <Key><PropertyRef Name="id" /></Key>
+        <Property Name="id" Type="Edm.Guid" Nullable="false" />
+        <Property Name="number" Type="Edm.String" MaxLength="20" />
+        <Property Name="orderDate" Type="Edm.Date" />
+        <Property Name="lastModifiedDateTime" Type="Edm.DateTimeOffset" />
+        <NavigationProperty Name="salesOrderLines" Type="Collection(Microsoft.NAV.salesOrderLine)" ContainsTarget="true" />
+      </EntityType>
+      <EntityType Name="salesOrderLine">
+        <Key><PropertyRef Name="id" /></Key>
+        <Property Name="id" Type="Edm.Guid" Nullable="false" />
+        <Property Name="documentId" Type="Edm.Guid" />
+        <Property Name="sequence" Type="Edm.Int32" />
+        <Property Name="quantity" Type="Edm.Decimal" Scale="Variable" />
+      </EntityType>
+      <EntityType Name="trialBalance">
+        <Key><PropertyRef Name="number" /></Key>
+        <Property Name="number" Type="Edm.String" Nullable="false" />
+        <Property Name="display" Type="Edm.String" />
+        <Property Name="totalDebit" Type="Edm.String" />
+        <Property Name="totalCredit" Type="Edm.String" />
+        <Property Name="dateFilter" Type="Edm.Date" />
+      </EntityType>
+      <EntityType Name="companyInformation">
+        <Key><PropertyRef Name="id" /></Key>
+        <Property Name="id" Type="Edm.Guid" Nullable="false" />
+        <Property Name="displayName" Type="Edm.String" />
+        <Property Name="picture" Type="Edm.Stream" />
+        <Property Name="lastModifiedDateTime" Type="Edm.DateTimeOffset" />
+      </EntityType>
+      <EntityType Name="dimensionSetLine">
+        <Key><PropertyRef Name="id" /></Key>
+        <Property Name="id" Type="Edm.Guid" Nullable="false" />
+      </EntityType>
+      <EntityType Name="pdfDocument">
+        <Key><PropertyRef Name="id" /></Key>
+        <Property Name="id" Type="Edm.Guid" Nullable="false" />
+        <Property Name="pdfDocumentContent" Type="Edm.Stream" />
+      </EntityType>
+      <EntityType Name="picture">
+        <Key><PropertyRef Name="id" /></Key>
+        <Property Name="id" Type="Edm.Guid" Nullable="false" />
+      </EntityType>
+      <EntityContainer Name="default">
+        <EntitySet Name="companies" EntityType="Microsoft.NAV.company" />
+      </EntityContainer>
+    </Schema>
+  </edmx:DataServices>
+</edmx:Edmx>

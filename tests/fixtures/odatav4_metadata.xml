@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Trimmed fixture in the shape of an ODataV4 web services $metadata document. -->
+<edmx:Edmx Version="4.0" xmlns:edmx="http://docs.oasis-open.org/odata/ns/edmx">
+  <edmx:DataServices>
+    <Schema Namespace="NAV" xmlns="http://docs.oasis-open.org/odata/ns/edm">
+      <EntityType Name="Bank_Acc_Ledger_Entries">
+        <Key><PropertyRef Name="Entry_No" /></Key>
+        <Property Name="Entry_No" Type="Edm.Int32" Nullable="false" />
+        <Property Name="Posting_Date" Type="Edm.Date" />
+        <Property Name="Bank_Account_No" Type="Edm.String" />
+        <Property Name="Amount" Type="Edm.Decimal" Scale="Variable" />
+        <Property Name="SystemModifiedAt" Type="Edm.DateTimeOffset" />
+      </EntityType>
+      <EntityContainer Name="NAV">
+        <EntitySet Name="BankAccountLedgerEntries" EntityType="NAV.Bank_Acc_Ledger_Entries" />
+      </EntityContainer>
+    </Schema>
+  </edmx:DataServices>
+</edmx:Edmx>

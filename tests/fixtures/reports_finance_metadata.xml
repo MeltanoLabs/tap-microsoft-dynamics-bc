@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Trimmed fixture in the shape of the api/microsoft/reportsFinance/beta $metadata document. -->
+<edmx:Edmx Version="4.0" xmlns:edmx="http://docs.oasis-open.org/odata/ns/edmx">
+  <edmx:DataServices>
+    <Schema Namespace="Microsoft.NAV" xmlns="http://docs.oasis-open.org/odata/ns/edm">
+      <EntityType Name="company">
+        <Key><PropertyRef Name="id" /></Key>
+        <Property Name="id" Type="Edm.Guid" Nullable="false" />
+        <Property Name="name" Type="Edm.String" />
+        <NavigationProperty Name="customerLedgerEntries" Type="Collection(Microsoft.NAV.customerLedgerEntry)" ContainsTarget="true" />
+      </EntityType>
+      <EntityType Name="customerLedgerEntry">
+        <Property Name="entryNumber" Type="Edm.Int32" />
+        <Property Name="customerNumber" Type="Edm.String" />
+        <Property Name="postingDate" Type="Edm.Date" />
+        <Property Name="amount" Type="Edm.Decimal" Scale="Variable" />
+        <Property Name="open" Type="Edm.Boolean" />
+        <Property Name="lastModifiedDateTime" Type="Edm.DateTimeOffset" />
+      </EntityType>
+      <EntityContainer Name="default">
+        <EntitySet Name="companies" EntityType="Microsoft.NAV.company" />
+      </EntityContainer>
+    </Schema>
+  </edmx:DataServices>
+</edmx:Edmx>

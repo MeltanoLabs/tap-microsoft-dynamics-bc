@@ -1,0 +1,73 @@
+send_anonymous_usage_stats: false
+project_id: "tap-microsoft-dynamics-bc"
+default_environment: test
+requires_meltano: ">=4.0"
+environments:
+- name: test
+plugins:
+  extractors:
+  - name: "tap-microsoft-dynamics-bc"
+    namespace: "tap_microsoft_dynamics_bc"
+    pip_url: -e .
+    capabilities:
+    - state
+    - catalog
+    - discover
+    - about
+    - stream-maps
+    - activate-version
+    - structured-logging
+    settings:
+    - name: tenant_id
+      label: Tenant ID
+      description: Microsoft Entra tenant ID (GUID) or primary domain.
+    - name: client_id
+      label: Client ID
+      description: Application (client) ID of the Microsoft Entra app registration.
+    - name: client_secret
+      label: Client Secret
+      description: Client secret value of the Microsoft Entra app registration.
+      sensitive: true
+    - name: environment_name
+      label: Environment Name
+      value: production
+      description: Business Central environment name, as shown in the admin center.
+    - name: company_ids
+      kind: array
+      label: Companies
+      description: Companies to extract, by ID or name. Empty extracts every company.
+    - name: start_date
+      kind: date_iso8601
+      label: Start Date
+      description: Earliest modification time for incremental streams.
+    - name: include_reports_finance_api
+      kind: boolean
+      value: true
+      label: Include Finance Reports API
+    - name: include_analytics_api
+      kind: boolean
+      value: true
+      label: Include Analytics API
+    - name: custom_apis
+      kind: array
+      label: Custom APIs
+    - name: web_services
+      kind: array
+      label: OData Web Services
+    - name: emit_activate_version_messages
+      kind: boolean
+      value: true
+      label: Propagate Deletes
+    - name: page_size
+      kind: integer
+      value: 1000
+      label: Page Size
+    settings_group_validation:
+    - [tenant_id, client_id, client_secret]
+    config:
+      start_date: "2026-01-01T00:00:00Z"
+
+  loaders:
+  - name: target-jsonl
+    variant: andyh1203
+    pip_url: target-jsonl
