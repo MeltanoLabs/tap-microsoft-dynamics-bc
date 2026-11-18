@@ -88,6 +88,8 @@ filterwarnings = [
     "error",
     "once:No records were available to test:UserWarning",
     "once:Fields in transformed catalog but not in records:UserWarning",
+    # Python 3.10 is end-of-life; the tap still supports it until the SDK drops it.
+    "ignore:Python 3.10 reached its end of life",
 ]
 log_level = "INFO"
 minversion = "9"
