@@ -18,6 +18,7 @@ FIXTURES = Path(__file__).parent / "fixtures"
 TENANT = "test-tenant"
 ENVIRONMENT = "production"
 BASE = f"https://api.businesscentral.dynamics.com/v2.0/{TENANT}/{ENVIRONMENT}"
+ONPREM_BASE = "https://bc.example.test:7048/BC"
 TOKEN_URL = f"https://login.microsoftonline.com/{TENANT}/oauth2/v2.0/token"
 COMPANY_ID = "11111111-1111-1111-1111-111111111111"
 COMPANY_NAME = "CRONUS UK Ltd."
@@ -86,6 +87,32 @@ SALES_INVOICES = [
         ],
     },
 ]
+# A draft invoice last modified before the run's window: only the re-read of
+# open documents (`status eq 'Draft' and lastModifiedDateTime lt ...`) finds it.
+DRAFT_SALES_INVOICES = [
+    {
+        "id": "a0000000-0000-0000-0000-000000000002",
+        "number": "",
+        "invoiceDate": "2025-12-15",
+        "customerId": "c0000000-0000-0000-0000-000000000002",
+        "totalAmountIncludingTax": 40,
+        "status": "Draft",
+        "lastModifiedDateTime": "2025-12-15T09:00:00Z",
+        "salesInvoiceLines": [
+            {
+                "id": "b0000000-0000-0000-0000-000000000002",
+                "documentId": "a0000000-0000-0000-0000-000000000002",
+                "sequence": 10000,
+                "description": "Bicycle bell, edited",
+                "quantity": 4,
+                "amountIncludingTax": 40,
+                "itemDetails": {"number": "1001", "displayName": "Bell"},
+            },
+        ],
+    },
+]
+#: HTTP status the mock answers the open-documents re-read with.
+DRAFT_PASS_STATUS = {"value": 200}
 SALES_ORDERS = [
     {
         "id": "d0000000-0000-0000-0000-000000000001",
@@ -104,6 +131,20 @@ SALES_ORDERS = [
             f"{BASE}{COMPANY_PATH}/salesOrders(d0000000-0000-0000-0000-000000000001)"
             "/salesOrderLines?$skiptoken=x"
         ),
+    },
+    {
+        "id": "d0000000-0000-0000-0000-000000000002",
+        "number": "101002",
+        "orderDate": "2026-02-04",
+        "lastModifiedDateTime": "2026-02-04T09:00:00Z",
+        "salesOrderLines": [
+            {
+                "id": "e0000000-0000-0000-0000-000000000003",
+                "documentId": "d0000000-0000-0000-0000-000000000002",
+                "sequence": 10000,
+                "quantity": 1,
+            },
+        ],
     },
 ]
 SALES_ORDER_LINES_DIRECT = [
@@ -157,7 +198,8 @@ def _not_found() -> tuple[int, dict[str, str], str]:
 def route(request: requests.PreparedRequest) -> tuple[int, dict[str, str], str]:  # noqa: C901, PLR0911, PLR0912
     """Answer a request the way Business Central would."""
     url = urlsplit(str(request.url))
-    path = unquote(url.path).removeprefix(urlsplit(BASE).path)
+    base = ONPREM_BASE if url.netloc == urlsplit(ONPREM_BASE).netloc else BASE
+    path = unquote(url.path).removeprefix(urlsplit(base).path)
     query = parse_qs(url.query)
 
     if path.endswith("/$metadata"):
@@ -197,7 +239,13 @@ def route(request: requests.PreparedRequest) -> tuple[int, dict[str, str], str]:
             },
         )
     if path == f"{COMPANY_PATH}/salesInvoices":
-        invoices = json.loads(json.dumps(SALES_INVOICES))
+        drafts_only = "status eq 'Draft'" in "".join(query.get("$filter", []))
+        if drafts_only and DRAFT_PASS_STATUS["value"] != 200:
+            return _json(
+                DRAFT_PASS_STATUS["value"],
+                {"error": {"code": "BadRequest", "message": "Filter not supported"}},
+            )
+        invoices = json.loads(json.dumps(DRAFT_SALES_INVOICES if drafts_only else SALES_INVOICES))
         if "$expand" not in query:
             for invoice in invoices:
                 invoice.pop("salesInvoiceLines")
@@ -239,6 +287,11 @@ _MOCK.add(
 _MOCK.add_callback(
     responses.GET,
     re.compile(r"https://api\.businesscentral\.dynamics\.com/.*"),
+    callback=route,
+)
+_MOCK.add_callback(
+    responses.GET,
+    re.compile(rf"{re.escape(ONPREM_BASE)}/.*"),
     callback=route,
 )
 

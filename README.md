@@ -1,7 +1,7 @@
 # tap-microsoft-dynamics-bc
 
-Singer tap for [Microsoft Dynamics 365 Business Central](https://dynamics.microsoft.com/business-central/) online,
-built with the [Meltano Singer SDK](https://sdk.meltano.com).
+Singer tap for [Microsoft Dynamics 365 Business Central](https://dynamics.microsoft.com/business-central/)
+(online and on-premises), built with the [Meltano Singer SDK](https://sdk.meltano.com).
 
 Business Central is Microsoft's ERP for small and mid-sized organisations: finance, sales,
 purchasing, inventory, projects and manufacturing. This tap extracts that data through
@@ -33,12 +33,21 @@ See [STREAMS.md](STREAMS.md) for every stream with its replication method and de
 - **Incremental where Business Central allows it.** Streams with a `lastModifiedDateTime`
   field are filtered on it, with a bookmark per company.
 - **Deletes are propagated.** Working documents that Business Central deletes when they
-  are posted or cancelled (orders, quotes, journals, transfer orders...) and all streams
-  without a modification timestamp are extracted in full. They emit `ACTIVATE_VERSION`,
-  so targets that support it remove rows deleted in Business Central.
+  are posted or cancelled (orders, quotes, journals, transfer orders...), employees, and
+  all streams without a modification timestamp are extracted in full. They emit
+  `ACTIVATE_VERSION` once per run, so targets that support it (for example the MeltanoLabs
+  `target-postgres` and `target-snowflake`) remove rows deleted in Business Central.
+  Targets that ignore `ACTIVATE_VERSION` keep deleted rows.
 - **Lines come with their documents.** Business Central only returns sales/purchase
   document lines for a given document, so they are fetched with `$expand` on the header
-  request instead of one request per document.
+  request instead of one request per document. Lines of incremental documents (invoices,
+  credit memos, shipments, receipts) never emit `ACTIVATE_VERSION`, because a run only
+  sees the lines of documents that changed.
+- **Draft invoices and credit memos are re-read every run.** Business Central only updates
+  a document's `lastModifiedDateTime` for line changes that affect its totals, so an edit
+  such as a new description on an item line would otherwise be missed. Lines can only be
+  edited on drafts, and drafts are few, so the tap reads them again with
+  `$filter=status eq 'Draft'` on every incremental run.
 - **Gentle on production.** Requests carry `Data-Access-Intent: ReadOnly` (served from a
   read-only replica where available), honour `Retry-After` when throttled, and page with
   `Prefer: odata.maxpagesize`.
@@ -55,7 +64,12 @@ flow.
 
 ### Prerequisites
 
-- Business Central **online**, version 18.3 or later.
+- Business Central **online**, version 18.3 or later, or Business Central
+  **on-premises**, version 18.11, 19.5 or later, configured for
+  [Microsoft Entra authentication with OpenID Connect](https://learn.microsoft.com/en-us/dynamics365/business-central/dev-itpro/administration/authenticating-users-with-azure-ad-openid-connect)
+  with `https://api.businesscentral.dynamics.com` in the server's `ValidAudiences`.
+  Set `base_url` to the server instance URL. Steps 1 and 2 below are the same as
+  online.
 - A Microsoft Entra administrator who can register applications and grant admin consent
   (Application Administrator, Cloud Application Administrator or Global Administrator).
 - A Business Central user with permission to manage Microsoft Entra applications
@@ -129,6 +143,7 @@ Applications cannot be given the `SUPER` permission set.
 | `web_services` | | | OData web services: list of `{name, replication_key}`. |
 | `emit_activate_version_messages` | | `true` | Emit `ACTIVATE_VERSION` for full-table streams so deletes propagate. |
 | `page_size` | | `1000` | Records per response. |
+| `base_url` | | | On-premises only: server instance URL, e.g. `https://bc.example.com:7048/BC`. |
 | `api_url` / `auth_url` | | public cloud | Change only for sovereign clouds. |
 
 Run `tap-microsoft-dynamics-bc --about` for the full list, including the SDK's stream maps
@@ -165,20 +180,41 @@ Set `client_id` and `client_secret` through your secrets store or environment va
 - **One stream only:** with Meltano, `meltano el tap-microsoft-dynamics-bc <target>
   --select <stream> --full-refresh`.
 - **Deleted records:** full-table streams remove them downstream through
-  `ACTIVATE_VERSION`. For incremental streams (where Business Central keeps no record of
-  deletions), a periodic full refresh removes them.
+  `ACTIVATE_VERSION`. Business Central keeps no record of deletions for incremental
+  streams. Posted entries and documents cannot be deleted, so this only matters for
+  master data. Choose per stream:
+  - **Extract it in full.** Master data is small, so re-reading it every run is cheap.
+    With Meltano:
+
+    ```yaml
+    plugins:
+      extractors:
+      - name: tap-microsoft-dynamics-bc
+        metadata:
+          customers:
+            replication-method: FULL_TABLE
+          vendors:
+            replication-method: FULL_TABLE
+          items:
+            replication-method: FULL_TABLE
+    ```
+
+  - **Run a periodic full refresh** (see above).
+  - **Keep an audit trail.** In Business Central, enable the **Change Log** and log
+    deletions for the tables that matter. Then publish page 595 *Change Log Entries*
+    on **Web Services** and extract it with
+    `web_services: [{name: <ServiceName>, replication_key: Entry_No}]`. Each deletion
+    arrives as an entry with the table number and the record's primary key.
 
 ## Known limitations
 
-- **Deletions in incremental streams** are not visible until a full refresh. Posted
-  ledger entries and posted documents cannot be deleted in Business Central, so in
-  practice this affects master data (customers, items...) that is deleted rather than
-  blocked.
-- **Document lines** follow their header: if a line changes without the header's
-  `lastModifiedDateTime` changing, it is picked up at the next change to that document or
-  the next full refresh.
-- **On-premises** Business Central is not supported yet. It needs Microsoft Entra
-  authentication configured on the server and the `api_url` pointed at the server.
+- **Deletions in incremental streams** reach the target only with one of the options
+  under *Deleted records* above.
+- **Lines deleted from a draft** invoice or credit memo stay in the target until a full
+  refresh. Lines that are added or changed are picked up by the re-read of drafts.
+- **Multi-tenant on-premises servers** (which need `?tenant=` on every request) are not
+  supported yet. Neither is on-premises authentication without Microsoft Entra
+  (Windows or `NavUserPassword`).
 
 ## Development
 

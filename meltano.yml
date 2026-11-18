@@ -62,6 +62,9 @@ plugins:
       kind: integer
       value: 1000
       label: Page Size
+    - name: base_url
+      label: Server URL (on-premises)
+      description: On-premises only. Server instance URL, e.g. https://bc.example.com:7048/BC.
     settings_group_validation:
     - [tenant_id, client_id, client_secret]
     config:

@@ -32,6 +32,8 @@ if TYPE_CHECKING:
 
 DEFAULT_PAGE_SIZE = 1000
 DEFAULT_RETRY_AFTER_SECONDS = 30
+FULL_TABLE = "FULL_TABLE"
+INCREMENTAL = "INCREMENTAL"
 
 # Responses that mean "this endpoint is not available to this app in this
 # environment" (extension not installed, missing permission, unpublished web
@@ -46,6 +48,13 @@ class StreamUnavailableError(FatalAPIError):
         """Keep the response so the status can be reported."""
         super().__init__(message)
         self.response = response
+
+
+def odata_datetime(value: datetime.datetime) -> str:
+    """Format a timestamp as an OData ``Edm.DateTimeOffset`` literal in UTC."""
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=datetime.timezone.utc)
+    return value.astimezone(datetime.timezone.utc).isoformat().replace("+00:00", "Z")
 
 
 class ODataNextLinkPaginator(BaseHATEOASPaginator):
@@ -82,6 +91,8 @@ class BusinessCentralStream(RESTStream):
         self.primary_keys = primary_keys or []
         self.replication_key = replication_key
         self._bc_tap = tap
+        self._pending_activate_version: int | None = None
+        self._activate_version_sent = False
 
     @override
     @property
@@ -114,8 +125,42 @@ class BusinessCentralStream(RESTStream):
     @override
     @property
     def emit_activate_version_messages(self) -> bool:
-        """Emit ACTIVATE_VERSION for full-table streams unless disabled in config."""
-        return bool(self.config.get("emit_activate_version_messages", True))
+        """Emit ACTIVATE_VERSION only for streams that are read in full every run.
+
+        A full-table stream below an incremental one, such as the lines of
+        invoices, only receives the children of parents changed since the last
+        run. Activating a new version there would make the target delete the
+        lines of every unchanged invoice.
+        """
+        if not self.config.get("emit_activate_version_messages", True):
+            return False
+        parent = self.parent_stream
+        while parent is not None:
+            if parent.replication_method != FULL_TABLE:
+                return False
+            parent = parent.parent_stream
+        return True
+
+    @override
+    def _write_activate_version_message(self, full_table_version: int) -> None:
+        """Hold ACTIVATE_VERSION until the first successful response, then send it once.
+
+        The SDK calls this at the start of every sync of the stream: once per
+        company, and for line streams once per document, always with the same
+        version. Sending it once spares targets a drain and a delete per
+        document. Waiting for a successful response means an endpoint that is
+        skipped (HTTP 403/404) does not wipe the rows already loaded.
+        """
+        if not self._activate_version_sent:
+            self._pending_activate_version = full_table_version
+
+    def send_activate_version(self) -> None:
+        """Send the held ACTIVATE_VERSION message, if any and not already sent."""
+        if self._pending_activate_version is None or self._activate_version_sent:
+            return
+        super()._write_activate_version_message(self._pending_activate_version)
+        self._activate_version_sent = True
+        self._pending_activate_version = None
 
     @override
     def get_new_paginator(self) -> ODataNextLinkPaginator:
@@ -134,7 +179,7 @@ class BusinessCentralStream(RESTStream):
 
     def replication_filter(self, context: Context | None) -> str | None:
         """Return the ``$filter`` clause for incremental replication, if any."""
-        if not self.replication_key or self.replication_method != "INCREMENTAL":
+        if not self.replication_key or self.replication_method != INCREMENTAL:
             return None
         key_type = self.schema["properties"].get(self.replication_key, {}).get("type")
         if key_type and "integer" in key_type:
@@ -143,12 +188,9 @@ class BusinessCentralStream(RESTStream):
         start_ts = self.get_starting_timestamp(context)
         if start_ts is None:
             return None
-        if start_ts.tzinfo is None:
-            start_ts = start_ts.replace(tzinfo=datetime.timezone.utc)
-        literal = start_ts.astimezone(datetime.timezone.utc).isoformat().replace("+00:00", "Z")
         # `ge` rather than `gt`: rows sharing the bookmark timestamp are re-read
         # and de-duplicated by key downstream instead of being missed.
-        return f"{self.replication_key} ge {literal}"
+        return f"{self.replication_key} ge {odata_datetime(start_ts)}"
 
     @override
     def get_url_params(
@@ -209,6 +251,7 @@ class BusinessCentralStream(RESTStream):
     @override
     def parse_response(self, response: requests.Response) -> Iterable[dict]:
         """Parse records, keeping decimals exact."""
+        self.send_activate_version()
         yield from extract_jsonpath(
             self.records_jsonpath,
             input=response.json(parse_float=decimal.Decimal),
