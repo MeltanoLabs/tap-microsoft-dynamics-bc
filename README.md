@@ -99,27 +99,35 @@ flow.
 
 ### 2. Grant the application access in Business Central
 
+Do these steps in this order: Business Central only accepts permission sets while the
+application is **Disabled** and its user exists.
+
 1. In Business Central, search for **Microsoft Entra Applications** and select **New**.
-2. Enter the **Client ID** from step 1, a **Description** (for example `Meltano data
-   extraction`), and set **State** to **Enabled**.
-3. Under **User Permission Sets**, add:
-   - **`D365 READ`** (*Dyn. 365 Read access all*): read access to all business data.
-     This covers the standard API and the analytics API.
-   - For the **Finance reports** streams (`reports_finance_*`, which include customer and
-     vendor ledger entries): Microsoft grants access to these endpoints through the
-     **`D365 BASIC ISV`** permission set. Add it if those streams are needed and are
-     skipped with an HTTP 403 warning.
+2. Enter the **Client ID** from step 1 and a **Description** (for example `Meltano data
+   extraction`). Leave **State** as **Disabled**.
+3. Select *Click here to create the application user* in the notification at the top of
+   the page (*"You must initialize the user before you can add permission sets"*).
+4. Under **User Permission Sets**, add **`D365 READ`** (*Dyn. 365 Read access all*). It
+   gives read access to all business data and covers every stream: the standard API, the
+   Finance reports (`reports_finance_*`, including customer and vendor ledger entries)
+   and the analytics API. Leave **Company** blank to grant it in all companies, or add one
+   line per company to restrict access.
+5. Set **State** to **Enabled**.
 
-   Leave **Company** blank to grant the permission sets in all companies, or add one line
-   per company to restrict access.
+You don't need the card's **Grant Consent** action when admin consent was granted in
+step 1. The **Client ID** of a card can't be changed: if it's wrong, delete the card and
+create a new one. To change permission sets later, set **State** back to **Disabled**
+first. Applications cannot be given the `SUPER` permission set.
 
-Applications cannot be given the `SUPER` permission set.
+If Business Central answers **401** `Authentication_InvalidCredentials` although a token
+is issued, there is no **Enabled** card for that client ID in that environment.
 
 ### 3. Optional: more data
 
 - **Analytics API.** The `analytics_*` streams need Microsoft's *Power BI Reports* app
-  installed (check **Extension Management** in Business Central). They are not selected by
-  default.
+  installed (check **Extension Management** in Business Central). The tap marks them as
+  not selected by default, but Meltano selects every stream unless the project has
+  `select` rules. To leave them out, use `select: ['*.*', '!analytics_*.*']`.
 - **Extension APIs.** If an extension publishes its own API, for example
   `api/contoso/banking/v1.0`, add it to `custom_apis`. Every entity becomes a stream.
 - **Pages and queries that have no API.** In Business Central, open **Web Services**,
@@ -206,12 +214,25 @@ Set `client_id` and `client_secret` through your secrets store or environment va
     `web_services: [{name: <ServiceName>, replication_key: Entry_No}]`. Each deletion
     arrives as an entry with the table number and the record's primary key.
 
+  The target must honour `ACTIVATE_VERSION`. Targets built on the Meltano Singer SDK
+  (for example MeltanoLabs `target-postgres`, `target-snowflake` and `target-mssql`)
+  need **`add_record_metadata: true`**: without it records carry no table version, and
+  nothing is ever deleted. By default they then *soft*-delete, setting
+  `_sdc_deleted_at` on rows that are gone, so filter on `_sdc_deleted_at IS NULL`
+  downstream, or set `hard_delete: true` to remove the rows. Some loaders ignore
+  `ACTIVATE_VERSION` altogether (for example the pipelinewise `target-postgres`).
+
 ## Known limitations
 
 - **Deletions in incremental streams** reach the target only with one of the options
   under *Deleted records* above.
 - **Lines deleted from a draft** invoice or credit memo stay in the target until a full
   refresh. Lines that are added or changed are picked up by the re-read of drafts.
+- **SQL Server targets:** MeltanoLabs `target-mssql` creates `varchar` columns, so text
+  outside the database collation's code page (for example Polish, Greek or Japanese
+  names under the default `SQL_Latin1_General_CP1_CI_AS`) is silently stored as `?`.
+  Load into a database with a UTF-8 collation such as
+  `Latin1_General_100_CI_AS_SC_UTF8` (SQL Server 2019 or later, Azure SQL).
 - **Multi-tenant on-premises servers** (which need `?tenant=` on every request) are not
   supported yet. Neither is on-premises authentication without Microsoft Entra
   (Windows or `NavUserPassword`).
