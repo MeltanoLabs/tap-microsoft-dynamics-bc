@@ -246,7 +246,8 @@ def test_sync(
     states = [m["value"] for m in messages if m["type"] == "STATE"]
     customer_state = states[-1]["bookmarks"]["customers"]["partitions"][0]
     assert customer_state["context"] == {"company_id": COMPANY_ID}
-    assert customer_state["replication_key_value"] == "2026-03-01T10:00:00Z"
+    # Normalised to a fixed six-digit fraction so string order is time order.
+    assert customer_state["replication_key_value"] == "2026-03-01T10:00:00.000000Z"
 
 
 def test_open_documents_reread_failure_is_not_fatal(

@@ -5,9 +5,10 @@ from __future__ import annotations
 import datetime
 import decimal
 import logging
+import re
 import sys
 from http import HTTPStatus
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from singer_sdk.exceptions import FatalAPIError
 from singer_sdk.helpers.jsonpath import extract_jsonpath
@@ -48,6 +49,29 @@ class StreamUnavailableError(FatalAPIError):
         """Keep the response so the status can be reported."""
         super().__init__(message)
         self.response = response
+
+
+_TIMESTAMP = re.compile(r"(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.(\d+))?(Z|[+-]\d{2}:\d{2})")
+
+
+def normalise_timestamp(value: str) -> str:
+    """Return an ``Edm.DateTimeOffset`` string in UTC with exactly six fraction digits.
+
+    Business Central trims trailing zeros (``…18.4Z``, ``…18.45Z``, ``…18.457Z``).
+    The SDK keeps the replication bookmark by comparing values as strings, and
+    ``"…18.4Z"`` sorts after ``"…18.457Z"``, so without a fixed width the
+    bookmark can lag the latest row and the next run re-reads up to a second of
+    rows. Values that are not timestamps are returned unchanged.
+    """
+    match = _TIMESTAMP.fullmatch(value)
+    if not match:
+        return value
+    base, fraction, offset = match.groups()
+    fraction = (fraction or "")[:6].ljust(6, "0")
+    if offset == "Z":
+        return f"{base}.{fraction}Z"
+    parsed = datetime.datetime.strptime(f"{base}.{fraction}{offset}", "%Y-%m-%dT%H:%M:%S.%f%z")
+    return parsed.astimezone(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
 
 
 def odata_datetime(value: datetime.datetime) -> str:
@@ -263,9 +287,12 @@ class BusinessCentralStream(RESTStream):
         row: dict,
         context: Context | None = None,
     ) -> dict | None:
-        """Drop OData annotations and stamp the owning company."""
+        """Drop OData annotations, stamp the owning company, fix the bookmark's width."""
         for key in [k for k in row if "@odata." in k]:
             row.pop(key)
         if context and "company_id" in context:
             row["company_id"] = context["company_id"]
+        value = row.get(self.replication_key) if self.replication_key else None
+        if isinstance(value, str):
+            row[cast("str", self.replication_key)] = normalise_timestamp(value)
         return row
