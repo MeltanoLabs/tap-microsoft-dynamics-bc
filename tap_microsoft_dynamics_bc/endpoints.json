@@ -721,6 +721,11 @@
      "field_descriptions": {},
      "full_table_default": false,
      "incremental": false,
+     "keys": [
+      "salesLineDocumentType",
+      "documentNo",
+      "lineNo"
+     ],
      "kind": "query",
      "parent": null
     },
@@ -1661,6 +1666,9 @@
      },
      "full_table_default": false,
      "incremental": false,
+     "keys": [
+      "customerId"
+     ],
      "kind": "query",
      "parent": null
     },
@@ -5059,6 +5067,9 @@
      },
      "full_table_default": false,
      "incremental": false,
+     "keys": [
+      "vendorId"
+     ],
      "kind": "query",
      "parent": null
     },

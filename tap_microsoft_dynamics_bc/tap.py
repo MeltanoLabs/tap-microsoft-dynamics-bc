@@ -38,7 +38,9 @@ if TYPE_CHECKING:
 
 STANDARD_ROUTE = "v2.0"
 METADATA_TIMEOUT_SECONDS = 300
-# Columns that identify a ledger/query row when the endpoint declares no key.
+# Columns that identify a ledger/query row. Queries use the first one present,
+# then the key in endpoints.json, then the key declared in $metadata (which for
+# queries can include mutable columns such as a name).
 QUERY_KEY_CANDIDATES = ("id", "systemId", "entryNumber", "entryNo")
 REPLICATION_KEY_CANDIDATES = ("lastModifiedDateTime", "systemModifiedAt", "SystemModifiedAt")
 # Incremental documents whose lines can change without the header's
@@ -54,6 +56,26 @@ OPEN_DOCUMENT_FILTERS = {
 
 
 _S = TypeVar("_S", bound=BusinessCentralStream)
+
+
+def stream_keys(
+    info: dict[str, Any] | None,
+    declared: list[str],
+    props: dict[str, Any],
+) -> list[str]:
+    """Return the key columns of a company-scoped entity set.
+
+    Args:
+        info: The endpoint's entry in endpoints.json, if it has one.
+        declared: The key the entity type declares in $metadata.
+        props: The entity's schema properties.
+    """
+    if info and info.get("keys") and all(k in props for k in info["keys"]):
+        return list(info["keys"])
+    if info and info.get("kind") == "query":
+        candidate = next((k for k in QUERY_KEY_CANDIDATES if k in props), None)
+        return [candidate] if candidate else list(declared)
+    return list(declared) or (["id"] if "id" in props else [])
 
 
 def bind_parent(cls: type[_S], parent: BusinessCentralStream, name: str) -> type[_S]:
@@ -328,11 +350,14 @@ class TapMicrosoftDynamicsBC(Tap):
             props = schema["properties"]
             schema["properties"] = {"company_id": COMPANY_ID, **props}
 
-            if info and info.get("kind") == "query":
-                keys = [next((k for k in QUERY_KEY_CANDIDATES if k in props), "")]
-            else:
-                keys = entity.keys or (["id"] if "id" in props else [])
-            keys = [k for k in keys if k]
+            keys = stream_keys(info, entity.keys, props)
+            name = f"{prefix}{snake_case(entity_set)}"
+            if not keys:
+                self.logger.warning(
+                    "Stream '%s' has no primary key, so targets append a full copy of it "
+                    "on every run.",
+                    name,
+                )
 
             replication_key = None
             if info is not None:
@@ -349,7 +374,6 @@ class TapMicrosoftDynamicsBC(Tap):
                 else None
             )
 
-            name = f"{prefix}{snake_case(entity_set)}"
             stream = bind_parent(CompanyEntityStream, companies, name)(
                 self,
                 name=name,

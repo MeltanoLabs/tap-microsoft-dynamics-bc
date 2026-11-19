@@ -43,6 +43,19 @@ MAX_COMPLEX_DEPTH = 3
 # Properties of these types carry binary content and are never extracted.
 _SKIPPED_TYPES = {"Edm.Stream"}
 
+# Top-level entity sets that every Business Central API route publishes for the
+# whole environment (webhooks, business events, API metadata). They are not
+# company data and answer 404 under ``companies({id})``.
+SYSTEM_ENTITY_SETS = frozenset(
+    {
+        "apicategoryroutes",
+        "entityDefinitions",
+        "externalbusinesseventdefinitions",
+        "externaleventsubscriptions",
+        "subscriptions",
+    },
+)
+
 
 @dataclasses.dataclass
 class EntityType:
@@ -77,20 +90,24 @@ class Metadata:
         """Return the entity sets that live under ``companies({id})``.
 
         Business Central models company-scoped entities as contained collection
-        navigation properties of the ``company`` entity type. Older or custom
-        routes may instead list them as top-level entity sets, so fall back to
-        those when the company type exposes no collections.
+        navigation properties of the ``company`` entity type. When a route has a
+        ``company`` type, those collections are the whole answer, even if there
+        are none (``api/microsoft/analytics/beta`` on recent releases). Only a
+        route with no ``company`` type at all falls back to its top-level entity
+        sets, leaving out the environment-wide system sets every route publishes.
         """
         company = self.entity_type("company")
         if company:
-            contained = {
+            return {
                 name: target
                 for name, (target, is_collection) in company.navigation.items()
                 if is_collection
             }
-            if contained:
-                return contained
-        return {name: t for name, t in self.entity_sets.items() if name != "companies"}
+        return {
+            name: t
+            for name, t in self.entity_sets.items()
+            if name != "companies" and name not in SYSTEM_ENTITY_SETS
+        }
 
 
 def _unwrap_collection(type_name: str) -> tuple[str, bool]:

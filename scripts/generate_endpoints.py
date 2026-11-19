@@ -110,6 +110,19 @@ FULL_TABLE_DEFAULT = {
     "inventoryShipmentLines",
 }
 
+# Query endpoints with none of the generic key columns (id, systemId,
+# entryNumber, entryNo). Their $metadata keys include mutable columns (a
+# customer or vendor name), so a rename would leave a duplicate row in targets
+# that ignore ACTIVATE_VERSION. Each key here was checked unique per company
+# against a live environment; they are listed per endpoint, never inferred, so
+# a column such as customerId cannot collapse the rows of some other query.
+QUERY_KEYS = {
+    ("v2.0", "customerSales"): ["customerId"],
+    ("v2.0", "vendorPurchases"): ["vendorId"],
+    # The Sales Line table's own key: Document Type, Document No., Line No.
+    ("analytics_v1", "salesLines"): ["salesLineDocumentType", "documentNo", "lineNo"],
+}
+
 NOT_LINES = {"dimensionSetLines", "pdfDocument", "attachments", "documentAttachments"}
 REQUIRES_PARENT = re.compile(
     r"Error\(\w*(FiltersNotSpecified|ParentNotSpecified|ShouldBeSpecified|"
@@ -236,6 +249,8 @@ def build(objects: list[dict[str, Any]], commit: str) -> dict[str, Any]:
             "parent": parent,
             "field_descriptions": obj["field_descriptions"],
         }
+        if keys := QUERY_KEYS.get((route_id, entity_set)):
+            route["endpoints"][entity_set]["keys"] = keys
 
     return {
         "source": {

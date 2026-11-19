@@ -271,6 +271,21 @@ def route(request: requests.PreparedRequest) -> tuple[int, dict[str, str], str]:
                 ]
             },
         )
+    if path == f"{COMPANY_PATH}/customerSales":
+        return _json(
+            200,
+            {
+                "value": [
+                    {
+                        "customerId": "c0000000-0000-0000-0000-000000000001",
+                        "customerNumber": "10000",
+                        "name": "Adatum Corporation",
+                        "totalSalesAmount": 1501.2,
+                        "dateFilter_FilterOnly": "0001-01-01",
+                    }
+                ]
+            },
+        )
     if path == f"{FINANCE_PATH}/customerLedgerEntries":
         return _json(200, {"value": CUSTOMER_LEDGER_ENTRIES})
     if re.fullmatch(r"/ODataV4/Company\('CRONUS UK Ltd\.'\)/BankAccountLedgerEntries", path):

@@ -13,4 +13,6 @@ TestTapMicrosoftDynamicsBC = get_tap_test_class(
     tap_class=TapMicrosoftDynamicsBC,
     config=SAMPLE_CONFIG,
     suite_config=SuiteConfig(ignore_no_records_for_streams=["trial_balances"]),
+    # The SDK defaults to True, which loads a developer's real `.env` over the mock config.
+    parse_env_config=False,
 )
