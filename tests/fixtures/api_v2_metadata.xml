@@ -29,6 +29,7 @@
         <NavigationProperty Name="dimensionSetLines" Type="Collection(Microsoft.NAV.dimensionSetLine)" ContainsTarget="true" />
         <NavigationProperty Name="pdfDocument" Type="Collection(Microsoft.NAV.pdfDocument)" ContainsTarget="true" />
         <NavigationProperty Name="companyInformation" Type="Collection(Microsoft.NAV.companyInformation)" ContainsTarget="true" />
+        <NavigationProperty Name="customerSales" Type="Collection(Microsoft.NAV.customerSale)" ContainsTarget="true" />
       </EntityType>
       <EntityType Name="customer">
         <Key><PropertyRef Name="id" /></Key>
@@ -87,6 +88,15 @@
         <Property Name="totalDebit" Type="Edm.String" />
         <Property Name="totalCredit" Type="Edm.String" />
         <Property Name="dateFilter" Type="Edm.Date" />
+      </EntityType>
+      <!-- A query: Business Central declares every group-by column as the key, name included. -->
+      <EntityType Name="customerSale">
+        <Key><PropertyRef Name="customerId" /><PropertyRef Name="customerNumber" /><PropertyRef Name="name" /></Key>
+        <Property Name="customerId" Type="Edm.Guid" Nullable="false" />
+        <Property Name="customerNumber" Type="Edm.String" Nullable="false" MaxLength="20" />
+        <Property Name="name" Type="Edm.String" Nullable="false" MaxLength="100" />
+        <Property Name="totalSalesAmount" Type="Edm.Decimal" Scale="Variable" />
+        <Property Name="dateFilter_FilterOnly" Type="Edm.Date" />
       </EntityType>
       <EntityType Name="companyInformation">
         <Key><PropertyRef Name="id" /></Key>

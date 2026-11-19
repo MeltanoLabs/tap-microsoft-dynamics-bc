@@ -11,6 +11,7 @@ import pytest
 import requests
 
 from tap_microsoft_dynamics_bc.client import BusinessCentralStream
+from tap_microsoft_dynamics_bc.edmx import EntityType
 from tap_microsoft_dynamics_bc.streams import CompanyEntityStream
 from tap_microsoft_dynamics_bc.tap import TapMicrosoftDynamicsBC, snake_case
 from tests.conftest import COMPANY_ID, DRAFT_PASS_STATUS, ONPREM_BASE, SAMPLE_CONFIG
@@ -19,6 +20,8 @@ if TYPE_CHECKING:
     from collections.abc import Generator
 
     import responses
+
+    from tap_microsoft_dynamics_bc.edmx import Metadata
 
 
 def _messages(capsys: pytest.CaptureFixture[str]) -> list[dict[str, Any]]:
@@ -83,6 +86,61 @@ def test_keys_and_replication(tap: TapMicrosoftDynamicsBC) -> None:
     assert web.primary_keys == ["company_id", "Entry_No"]
     assert web.replication_key == "SystemModifiedAt"
     assert s["trial_balances"].primary_keys == ["company_id", "number"]
+
+
+def test_query_keys(
+    tap: TapMicrosoftDynamicsBC,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The registry's key wins over the declared one, which includes the
+    # customer's name: a rename would otherwise leave a duplicate row.
+    assert tap.streams["customer_sales"].primary_keys == ["company_id", "customerId"]
+
+    # Without a registry key, a query with no generic key column falls back to
+    # the key Business Central declares, instead of having none.
+    registry = json.loads(json.dumps(tap.endpoints))
+    del registry["routes"]["v2.0"]["endpoints"]["customerSales"]["keys"]
+    monkeypatch.setattr(TapMicrosoftDynamicsBC, "endpoints", property(lambda _: registry))
+    fallback = TapMicrosoftDynamicsBC(config=SAMPLE_CONFIG, parse_env_config=False)
+    assert fallback.streams["customer_sales"].primary_keys == [
+        "company_id",
+        "customerId",
+        "customerNumber",
+        "name",
+    ]
+
+
+def test_stream_without_key_warns(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # An extension entity unknown to the registry, with no key and no id.
+    original = TapMicrosoftDynamicsBC.get_metadata
+
+    def with_keyless_entity(self: TapMicrosoftDynamicsBC, path: str) -> Metadata:
+        metadata = original(self, path)
+        if path != "api/v2.0":
+            return metadata
+        metadata.entity_types["Microsoft.NAV.extensionSalesSummary"] = EntityType(
+            name="extensionSalesSummary",
+            keys=[],
+            properties={"itemNo": "Edm.String", "amount": "Edm.Decimal"},
+            navigation={},
+        )
+        company = metadata.entity_type("company")
+        assert company is not None
+        company.navigation["extensionSalesSummaries"] = (
+            "Microsoft.NAV.extensionSalesSummary",
+            True,
+        )
+        return metadata
+
+    monkeypatch.setattr(TapMicrosoftDynamicsBC, "get_metadata", with_keyless_entity)
+    tap = TapMicrosoftDynamicsBC(config=SAMPLE_CONFIG, parse_env_config=False)
+
+    assert tap.streams["extension_sales_summaries"].primary_keys == []
+    assert "Stream 'extension_sales_summaries' has no primary key" in caplog.text
+    assert "'customer_sales' has no primary key" not in caplog.text
 
 
 def test_parent_child_wiring(tap: TapMicrosoftDynamicsBC) -> None:
