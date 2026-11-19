@@ -278,6 +278,30 @@ def test_open_documents_not_reread_without_window_start(
     assert sum(p.endswith("/salesInvoices") for p in paths) == 1
 
 
+def test_integer_replication_key_ignores_start_date(
+    capsys: pytest.CaptureFixture[str],
+    bc_api: responses.RequestsMock,
+) -> None:
+    # `start_date` is a timestamp and can't bound an entry number: a first run with
+    # an integer key and a start date must read everything, not fail on int().
+    config = {
+        **SAMPLE_CONFIG,
+        "web_services": [{"name": "BankAccountLedgerEntries", "replication_key": "Entry_No"}],
+    }
+    tap = TapMicrosoftDynamicsBC(config=config, parse_env_config=False)
+    web = tap.streams["web_service_bank_account_ledger_entries"]
+    assert web.replication_key == "Entry_No"
+    bc_api.calls.reset()
+    tap.sync_all()
+    records = [m for m in _messages(capsys) if m["type"] == "RECORD"]
+    assert [r["record"]["Entry_No"] for r in records if r["stream"] == web.name] == [7]
+    requests_made = [
+        c.request.url for c in bc_api.calls if "BankAccountLedgerEntries" in str(c.request.url)
+    ]
+    assert requests_made
+    assert not any("filter" in unquote(str(u)) for u in requests_made)
+
+
 def test_open_documents_filter_only_on_draft_documents(tap: TapMicrosoftDynamicsBC) -> None:
     streams = tap.streams
     invoices = streams["sales_invoices"]

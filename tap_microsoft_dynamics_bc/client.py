@@ -208,7 +208,12 @@ class BusinessCentralStream(RESTStream):
         key_type = self.schema["properties"].get(self.replication_key, {}).get("type")
         if key_type and "integer" in key_type:
             start = self.get_starting_replication_key_value(context)
-            return None if start is None else f"{self.replication_key} gt {int(start)}"
+            try:
+                return None if start is None else f"{self.replication_key} gt {int(start)}"
+            except (TypeError, ValueError):
+                # With no bookmark the SDK seeds the start from `start_date`, a
+                # timestamp that can't bound an entry number: read from the beginning.
+                return None
         start_ts = self.get_starting_timestamp(context)
         if start_ts is None:
             return None
