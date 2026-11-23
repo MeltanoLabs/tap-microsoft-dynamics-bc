@@ -41,6 +41,25 @@ INCREMENTAL = "INCREMENTAL"
 # service). The stream is skipped with a warning instead of failing the run.
 UNAVAILABLE_STATUSES = {HTTPStatus.FORBIDDEN, HTTPStatus.NOT_FOUND}
 
+# Business Central answers some endpoints with a 400 when the data they read is
+# not set up in the company, e.g. `journals` with "There is no Gen. Journal
+# Template within the filter". Only these error codes are treated as
+# unavailable; any other 400 is a real failure and still stops the run.
+UNAVAILABLE_400_ERROR_CODES = {"Internal_DataNotFoundFilter"}
+
+
+def is_unavailable(response: requests.Response) -> bool:
+    """Return whether the response says the endpoint is not available or not set up."""
+    if response.status_code in UNAVAILABLE_STATUSES:
+        return True
+    if response.status_code != HTTPStatus.BAD_REQUEST:
+        return False
+    try:
+        code = response.json()["error"]["code"]
+    except (ValueError, KeyError, TypeError):
+        return False
+    return code in UNAVAILABLE_400_ERROR_CODES
+
 
 class StreamUnavailableError(FatalAPIError):
     """Raised when Business Central reports an endpoint as unavailable."""
@@ -231,7 +250,7 @@ class BusinessCentralStream(RESTStream):
     @override
     def validate_response(self, response: requests.Response) -> None:
         """Classify unavailable endpoints separately from real failures."""
-        if response.status_code in UNAVAILABLE_STATUSES:
+        if is_unavailable(response):
             msg = self.response_error_message(response)
             raise StreamUnavailableError(msg, response)
         super().validate_response(response)
@@ -245,8 +264,9 @@ class BusinessCentralStream(RESTStream):
             status = exc.response.status_code
             self.log(
                 "Skipping '%s' (HTTP %s): the endpoint is not available to this "
-                "application. Check that the Business Central permission set grants "
-                "read access and that the owning extension is installed. %s",
+                "application or is not set up in this company. Check that the "
+                "Business Central permission set grants read access, that the owning "
+                "extension is installed and that the data exists. %s",
                 self.name,
                 status,
                 exc,
