@@ -52,7 +52,9 @@ See [STREAMS.md](STREAMS.md) for every stream with its replication method and de
   read-only replica where available), honour `Retry-After` when throttled, and page with
   `Prefer: odata.maxpagesize`.
 - **Resilient.** An endpoint the app has no permission for, or whose extension is not
-  installed, is skipped with a warning instead of failing the whole run.
+  installed, or that is not set up in a company (HTTP 400 `Internal_DataNotFoundFilter`,
+  e.g. `journals` with no journal template), is skipped with a warning instead of
+  failing the whole run. Other 400s still fail.
 
 ## Setup
 

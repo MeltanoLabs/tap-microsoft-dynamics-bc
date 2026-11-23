@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
-import pytest
+import json
 
-from tap_microsoft_dynamics_bc.client import normalise_timestamp
+import pytest
+import requests
+
+from tap_microsoft_dynamics_bc.client import is_unavailable, normalise_timestamp
 
 
 def test_normalised_timestamps_sort_in_time_order() -> None:
@@ -31,3 +34,34 @@ def test_normalised_timestamps_sort_in_time_order() -> None:
 )
 def test_normalise_timestamp(value: str, expected: str) -> None:
     assert normalise_timestamp(value) == expected
+
+
+def _response(status: int, body: object) -> requests.Response:
+    response = requests.Response()
+    response.status_code = status
+    response._content = json.dumps(body).encode()  # noqa: SLF001
+    return response
+
+
+@pytest.mark.parametrize(
+    ("status", "body", "expected"),
+    [
+        (403, {"error": {"code": "Authorization_InsufficientPermissions"}}, True),
+        (404, {"error": {"code": "BadRequest_NotFound"}}, True),
+        # Seen live: `journals` in a company with no general journal template.
+        (400, {"error": {"code": "Internal_DataNotFoundFilter", "message": "x"}}, True),
+        # Any other 400 is a real failure and must still stop the run.
+        (400, {"error": {"code": "BadRequest_InvalidToken", "message": "x"}}, False),
+        (400, {"unexpected": "shape"}, False),
+        (500, {"error": {"code": "Internal_DataNotFoundFilter"}}, False),
+    ],
+)
+def test_is_unavailable(status: int, body: object, expected: bool) -> None:  # noqa: FBT001
+    assert is_unavailable(_response(status, body)) is expected
+
+
+def test_is_unavailable_non_json_400() -> None:
+    response = requests.Response()
+    response.status_code = 400
+    response._content = b"<html>"  # noqa: SLF001
+    assert is_unavailable(response) is False
